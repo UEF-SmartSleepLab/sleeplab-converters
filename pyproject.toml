@@ -21,6 +21,9 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [ 
+  "pyedflib",
+  "xmltodict",
+  
   "sleeplab-format @ git+ssh://git@github.com/UEF-SmartSleepLab/sleeplab-format@main"
 ]
 dynamic = ["version"]
