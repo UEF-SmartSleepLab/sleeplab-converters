@@ -4,9 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sleeplab-converters"
-description = ''
+description = 'Tools for converting various PSG software exports to sleeplab format.'
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 license = "MIT"
 keywords = []
 authors = [
@@ -15,16 +15,18 @@ authors = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
-  "Programming Language :: Python :: 3.7",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = []
+dependencies = [ 
+  "sleeplab-format @ git+ssh://git@github.com/UEF-SmartSleepLab/sleeplab-format@main"
+]
 dynamic = ["version"]
+
+[project.scripts]
+profusion_convert = "sleeplab_converters.profusion.convert:cli_convert_dataset"
 
 [project.urls]
 Documentation = "https://github.com/unknown/sleeplab-converters#readme"
@@ -44,7 +46,7 @@ cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=src/sl
 no-cov = "cov --no-cov {args}"
 
 [[tool.hatch.envs.test.matrix]]
-python = ["37", "38", "39", "310", "311"]
+python = ["310", "311"]
 
 [tool.coverage.run]
 branch = true
@@ -59,3 +61,6 @@ exclude_lines = [
   "if __name__ == .__main__.:",
   "if TYPE_CHECKING:",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
