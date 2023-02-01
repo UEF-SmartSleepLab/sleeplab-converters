@@ -34,6 +34,7 @@ def read_signal_from_hdl(
 def read_edf_export(edf_path: Path,
                     digital: bool = False,
                     ch_names: Optional[list[str]] = None,
+                    annotations: bool = False,
                     dtype: np.dtype = np.float32
                     ) -> tuple[list[np.array], list[dict[str, Any]], dict[str, Any]]:
     """Read the EDF file and return signals and headers separately.
@@ -57,6 +58,13 @@ def read_edf_export(edf_path: Path,
             ch_idx = [ch_name_idx_map[ch_name] for ch_name in ch_names]
             
         header = hdl.getHeader()
+
+        # add annotations to header
+        if annotations:
+            annotations = hdl.readAnnotations()
+            annotations = [[s, d, a] for s,d,a in zip(*annotations)]
+            header['annotations'] = annotations
+
         signal_headers = []
         s_load_funcs = []
         for i in ch_idx:
