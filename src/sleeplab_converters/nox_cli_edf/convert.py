@@ -5,6 +5,7 @@ from sleeplab_format import writer
 from pathlib import Path
 from sleeplab_format.models import *
 from sleeplab_converters import edf
+from datetime import datetime, time, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,17 @@ def parse_samplearrays(s_load_funcs, sig_headers, header):
     return start_ts, sample_arrays
 
 
+def parse_annotations(header) -> dict[str, list[Annotation]]:
+
+    events = []
+    st_rec = header['startdate']
+
+    for event in header['annotations']:
+        events.append(Annotation(name = event[2], start_ts= st_rec + timedelta(seconds = event[0]), start_sec=event[0], duration=event[1], ))
+
+    annotations = {'all_events': Annotations(annotations = events)}
+
+    return annotations
 
 def parse_edf(edf_path: Path) -> Subject:
 
@@ -38,14 +50,15 @@ def parse_edf(edf_path: Path) -> Subject:
 
     start_ts, sample_arrays = parse_samplearrays(sig_load_funcs, sig_headers, header)
 
-
+    annotations = parse_annotations(header)
 
     metadata = SubjectMetadata(
         subject_id = edf_path.stem,
         recording_start_ts = start_ts)
 
     return Subject(metadata = metadata,
-        sample_arrays = sample_arrays)
+        sample_arrays = sample_arrays,
+        annotations=annotations)
 
 def read_data(
         src_dir: Path,
@@ -69,7 +82,7 @@ def convert_dataset(
         dst_dir: Path,
         ds_name: str,
         series_name: str) -> None:
-    logger.info(f'Converting Nox cmd tool exported data from {src_dir} to {dst_dir}...')
+    logger.info(f'Converting Nox cli tool exported edfs from {src_dir} to {dst_dir}...')
     logger.info(f'Start reading the data from {src_dir}...')
     dataset = read_data(
         src_dir, ds_name, series_name)
@@ -93,7 +106,7 @@ def create_parser() -> argparse.ArgumentParser:
 def cli_convert_dataset() -> None:
     parser = create_parser()
     args = parser.parse_args()
-    logger.info(f'Nox cmd export tool edf conversion args: {vars(args)}')
+    logger.info(f'Nox cli export tool edf conversion args: {vars(args)}')
     convert_dataset(**vars(args))
 
 
