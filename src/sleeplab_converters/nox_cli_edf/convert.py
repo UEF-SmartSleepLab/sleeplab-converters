@@ -5,7 +5,7 @@ from sleeplab_format import writer
 from pathlib import Path
 from sleeplab_format.models import *
 from sleeplab_converters import edf
-from datetime import datetime, time, timedelta
+from datetime import timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +31,98 @@ def parse_samplearrays(s_load_funcs, sig_headers, header):
 
     return start_ts, sample_arrays
 
+def parse_sleep_stage(event, start_rec) -> SleepStageAnnotation:
+
+    stage_str = event[2]
+
+    stage_map = {
+        'sleep-wake,Manual': SleepStage.WAKE,
+        'sleep-n1,Manual': SleepStage.N1,
+        'sleep-n2,Manual': SleepStage.N2,
+        'sleep-n3,Manual': SleepStage.N3,
+        'sleep-rem,Manual': SleepStage.REM,
+    }
+
+    return SleepStageAnnotation(
+        name = stage_map[stage_str],
+        start_ts = start_rec + timedelta(seconds=event[0]),
+        start_sec = event[0],
+        duration = event[1]
+        )
+
+def parse_for_aasm_annotation(event, start_rec) -> AASMAnnotation:
+
+        #ToDo:  How to detect AASM event? compare to event map?
+
+    name = event[2]
+    _start_ts = start_rec + timedelta(seconds=event[0])
+    start_sec = event[0]
+    duration = event[1]
+
+    nox_edf_aasm_event_map = {
+        'Unsure': AASMEvent.UNSURE,
+
+        # Score all artifacts as ARTIFACT
+        'signal-artifact,Manual': AASMEvent.ARTIFACT,
+        'signal-invalid,Manual': AASMEvent.ARTIFACT,
+        'ECG Artifact': AASMEvent.ARTIFACT,
+
+        'plm,Manual': AASMEvent.PLM,
+
+        'arousal,Manual': AASMEvent.AROUSAL,
+        'arousal-respiratory,Manual': AASMEvent.AROUSAL_RES,
+        'arousal-spontaneous,Manual': AASMEvent.AROUSAL_SPONT,
+        'arousal-plm,Manual': AASMEvent.AROUSAL_PLM,
+        'arousal-limbmovement,Manual': AASMEvent.AROUSAL_LM,
+        'rera,Manual': AASMEvent.RERA,
+
+        'apnea-central,Manual': AASMEvent.APNEA_CENTRAL,
+        'apnea-obstructive,Manual': AASMEvent.APNEA_OBSTRUCTIVE,
+        'apnea-mixed,Manual': AASMEvent.APNEA_MIXED,
+        'hypopnea,Manual': AASMEvent.HYPOPNEA,
+        'hypopnea-central,Manual': AASMEvent.HYPOPNEA_CENTRAL,
+        'hypopnea-obstructive,Manual': AASMEvent.HYPOPNEA_OBSTRUCTIVE,
+        'oxygensaturation-drop,Manual': AASMEvent.SPO2_DESAT,
+        'snorebreath,Manual':AASMEvent.SNORE,
+        'snore-train,Manual':AASMEvent.SNORE
+
+    }
+        
+    if name in nox_edf_aasm_event_map.keys():
+        return AASMAnnotation(
+        name=nox_edf_aasm_event_map[name],
+        start_ts=_start_ts,
+        start_sec=start_sec,
+        duration=duration
+    )
+    else:
+        return None
+
+
 
 def parse_annotations(header) -> dict[str, list[Annotation]]:
 
     events = []
+    sleep_stages = []
+    AASMevents = []
     st_rec = header['startdate']
 
     for event in header['annotations']:
-        events.append(Annotation(name = event[2], start_ts= st_rec + timedelta(seconds = event[0]), start_sec=event[0], duration=event[1], ))
+        events.append(Annotation(name = event[2], start_ts= st_rec + timedelta(seconds = event[0]), start_sec=event[0], duration=event[1]))
 
-    annotations = {'all_events': Annotations(annotations = events)}
+        if event[2][0:5] == 'sleep' and event[2][-6:] == 'Manual':
+            sleep_stages.append(parse_sleep_stage(event, start_rec=st_rec))
+        
+        AASMevent = parse_for_aasm_annotation(event, start_rec=st_rec) 
+
+        if AASMevent is not None:
+            AASMevents.append(AASMevent)
+
+    annotations = {
+    'all_events': Annotations(annotations = events), 
+    'sleep_stages': Hypnogram(annotations = sleep_stages, scorer='Manual'),
+    'AASM_events': AASMAnnotations(annotations = AASMevents, scorer='Manual')
+    }
 
     return annotations
 
