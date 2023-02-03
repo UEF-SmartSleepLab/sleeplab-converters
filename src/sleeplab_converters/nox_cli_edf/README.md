@@ -1,1 +1,1 @@
-# Create dataset from EDF+ files that are exported using Nox command line interface tool.
+# Create dataset from EDF+ files that are exported using a Nox command-line interface tool.
