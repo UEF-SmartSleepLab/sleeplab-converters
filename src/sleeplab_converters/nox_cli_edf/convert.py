@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 
 from sleeplab_format import writer
 from pathlib import Path
@@ -128,7 +129,11 @@ def parse_annotations(header) -> dict[str, list[Annotation]]:
 
 def parse_edf(edf_path: Path) -> Subject:
 
-    sig_load_funcs, sig_headers, header = edf.read_edf_export(edf_path, annotations=True)
+    if os.path.isdir(edf_path):
+        sig_load_funcs, sig_headers, header = edf.read_edf_export(edf_path.joinpath('edf_signals.edf'), annotations=True)
+    else:
+        sig_load_funcs, sig_headers, header = edf.read_edf_export(edf_path, annotations=True)
+    
 
     start_ts, sample_arrays = parse_samplearrays(sig_load_funcs, sig_headers, header)
 
