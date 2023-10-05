@@ -32,26 +32,26 @@ def parse_samplearrays(s_load_funcs, sig_headers, header):
 
     return start_ts, sample_arrays
 
-def parse_sleep_stage(event, start_rec) -> SleepStageAnnotation:
+def parse_sleep_stage(event, start_rec) -> Annotation[AASMSleepStage]:
 
     stage_str = event[2]
 
     stage_map = {
-        'sleep-wake,Manual': SleepStage.WAKE,
-        'sleep-n1,Manual': SleepStage.N1,
-        'sleep-n2,Manual': SleepStage.N2,
-        'sleep-n3,Manual': SleepStage.N3,
-        'sleep-rem,Manual': SleepStage.REM,
+        'sleep-wake,Manual': AASMSleepStage.W,
+        'sleep-n1,Manual': AASMSleepStage.N1,
+        'sleep-n2,Manual': AASMSleepStage.N2,
+        'sleep-n3,Manual': AASMSleepStage.N3,
+        'sleep-rem,Manual': AASMSleepStage.R,
     }
 
-    return SleepStageAnnotation(
+    return Annotation[AASMSleepStage](
         name = stage_map[stage_str],
         start_ts = start_rec + timedelta(seconds=event[0]),
         start_sec = event[0],
         duration = event[1]
         )
 
-def parse_for_aasm_annotation(event, start_rec) -> AASMAnnotation:
+def parse_for_aasm_annotation(event, start_rec) -> Annotation[AASMEvent]:
 
         #ToDo:  How to detect AASM event? compare to event map?
 
@@ -90,7 +90,7 @@ def parse_for_aasm_annotation(event, start_rec) -> AASMAnnotation:
     }
         
     if name in nox_edf_aasm_event_map.keys():
-        return AASMAnnotation(
+        return Annotation[AASMEvent](
         name=nox_edf_aasm_event_map[name],
         start_ts=_start_ts,
         start_sec=start_sec,
@@ -120,9 +120,9 @@ def parse_annotations(header) -> dict[str, list[Annotation]]:
             AASMevents.append(AASMevent)
 
     annotations = {
-    'all_events': Annotations(annotations = events), 
-    'sleep_stages': Hypnogram(annotations = sleep_stages, scorer='Manual'),
-    'AASM_events': AASMAnnotations(annotations = AASMevents, scorer='Manual')
+    'original_annotations': Annotations(annotations = events, scorer='original'), 
+    'manual_hypnogram': Hypnogram(annotations = sleep_stages, scorer='manual'),
+    'manual_aasmevents': AASMEvents(annotations = AASMevents, scorer='manual')
     }
 
     return annotations
@@ -176,7 +176,7 @@ def convert_dataset(
         
 
     logger.info(f'Start writing the data to {dst_dir}...')
-    writer.write_dataset(dataset, dst_dir)
+    writer.write_dataset(dataset, dst_dir, array_format='parquet')
     logger.info(f'Done.')
 
 
