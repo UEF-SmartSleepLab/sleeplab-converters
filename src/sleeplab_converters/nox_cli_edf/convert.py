@@ -109,7 +109,7 @@ def parse_annotations(header) -> dict[str, list[Annotation]]:
     st_rec = header['startdate']
 
     for event in header['annotations']:
-        events.append(Annotation(name = event[2], start_ts= st_rec + timedelta(seconds = event[0]), start_sec=event[0], duration=event[1]))
+        events.append(Annotation[str](name = event[2], start_ts= st_rec + timedelta(seconds = event[0]), start_sec=event[0], duration=event[1]))
 
         if event[2][0:5] == 'sleep' and event[2][-6:] == 'Manual':
             sleep_stages.append(parse_sleep_stage(event, start_rec=st_rec))
