@@ -366,7 +366,9 @@ def convert_dataset(
         log_file: str = 'txt_studylog.txt',
         edf_file: str = 'edf_signals.edf',
         idinfo_file: str = 'txt_idinfo.txt',
-        hg_file: str = 'txt_hypnogram.txt') -> None:
+        hg_file: str = 'txt_hypnogram.txt',
+        array_format: str = 'zarr',
+        clevel: int = 9) -> None:
     logger.info(f'Converting Profusion data from {src_dir} to {dst_dir}...')
     logger.info(f'Start reading the data from {src_dir}...')
     dataset = read_data(
@@ -380,7 +382,7 @@ def convert_dataset(
         })
 
     logger.info(f'Start writing the data to {dst_dir}...')
-    writer.write_dataset(dataset, dst_dir, array_format='parquet')
+    writer.write_dataset(dataset, dst_dir, array_format=array_format, compression_level=clevel)
     logger.info(f'Done.')
 
 
@@ -395,6 +397,10 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument('--edf_file', type=str, default='edf_signals.edf')
     parser.add_argument('--idinfo_file', type=str, default='txt_idinfo.txt')
     parser.add_argument('--hg_file', type=str, default='txt_hypnogram.txt')
+    parser.add_argument('--array_format', default='zarr',
+        help='Saving format for numerical arrays. `zarr` or `numpy`')
+    parser.add_argument('--clevel', type=int, default=9,
+        help='Compression level if array format is zarr.')
 
     return parser
 
