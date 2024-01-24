@@ -5,6 +5,8 @@
 
 -----
 
+Experimental tools for converting datasets in different formats to sleeplab-format.
+
 **Table of Contents**
 
 - [Installation](#installation)
@@ -13,7 +15,7 @@
 ## Installation
 
 ```console
-pip install sleeplab-converters
+pip install git+https://github.com/UEF-SmartSleepLab/sleeplab-converters.git@main
 ```
 
 ## License

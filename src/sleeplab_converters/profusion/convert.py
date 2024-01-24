@@ -76,7 +76,7 @@ def resolve_log_start_ts(start_ts: datetime, _time: datetime) -> datetime:
     )
 
 
-def parse_study_logs(log_file_path: Path, start_ts: datetime) -> list[LogEntry]:
+def parse_study_logs(log_file_path: Path, start_ts: datetime) -> Logs:
     """Parse txt study logs so that the time will be converted to datetime.
     
     Resolving the datetime relies on the heuristic that logs are for a duration
@@ -91,8 +91,9 @@ def parse_study_logs(log_file_path: Path, start_ts: datetime) -> list[LogEntry]:
             logger.warning(f'Could not parse line\n\t{l}\n\tfrom log file {log_file_path}')
             return None
         _time = str_to_time(time_str)
-        ts = resolve_datetime(log_start_ts, _time)
-        return LogEntry(ts=ts, text=text)
+        _start_ts = resolve_datetime(log_start_ts, _time)
+        _start_sec = (_start_ts - start_ts).total_seconds()
+        return Annotation[str](start_ts=_start_ts, start_sec=_start_sec, name=text)
     
     res = []
     try:
@@ -113,10 +114,10 @@ def parse_study_logs(log_file_path: Path, start_ts: datetime) -> list[LogEntry]:
         if l_parsed is not None:
             res.append(l_parsed)
 
-    return Logs(logs=res)
+    return Logs(scorer='study', type='logs', annotations=res)
 
 
-def parse_annotation(d: dict[str, Any], start_ts: datetime) -> Annotation:
+def parse_annotation(d: dict[str, Any], start_ts: datetime) -> Annotation[AASMEvent]:
     name = d.pop('Name')
     start_sec = float(d.pop('Start'))
     duration = float(d.pop('Duration'))
@@ -155,7 +156,7 @@ def parse_annotation(d: dict[str, Any], start_ts: datetime) -> Annotation:
         'SpO2 desaturation': AASMEvent.SPO2_DESAT
     }
 
-    return AASMAnnotation(
+    return Annotation[AASMEvent](
         name=profusion_aasm_event_map[name],
         start_ts=_start_ts,
         start_sec=start_sec,
@@ -169,7 +170,7 @@ def parse_xml(
         xml_path: Path,
         start_ts: datetime,
         # TODO: more precise definition of the scorer?
-        scorer: str = 'profusion_export'
+        scorer: str = 'profusion'
         ) -> tuple[dict[str, list[Annotation]], list[int], int]:
     """Read the events and hypnogram from the xml event file."""
     with open(xml_path, 'rb') as f:
@@ -184,7 +185,7 @@ def parse_xml(
         for e in xml_events:
             events.append(parse_annotation(e, start_ts))
 
-        annotations = {'events': AASMAnnotations(scorer=scorer, annotations=events)}
+        annotations = {f'{scorer}_aasmevents': AASMEvents(scorer=scorer, type='aasmevents', annotations=events)}
     else:
         annotations = None
 
@@ -248,19 +249,19 @@ def parse_sleep_stage(
         stage_str: str,
         start_ts: datetime,
         epoch: int,
-        epoch_sec: float) -> SleepStageAnnotation:
+        epoch_sec: float) -> Annotation[AASMSleepStage]:
     stage_map = {
-        'W': SleepStage.WAKE,
-        'N1': SleepStage.N1,
-        'N2': SleepStage.N2,
-        'N3': SleepStage.N3,
-        'R': SleepStage.REM,
-        'U': SleepStage.UNSCORED,
-        '?': SleepStage.UNSURE,
-        'A': SleepStage.ARTIFACT
+        'W': AASMSleepStage.W,
+        'N1': AASMSleepStage.N1,
+        'N2': AASMSleepStage.N2,
+        'N3': AASMSleepStage.N3,
+        'R': AASMSleepStage.R,
+        'U': AASMSleepStage.UNSCORED,
+        '?': AASMSleepStage.UNSURE,
+        'A': AASMSleepStage.ARTIFACT
     }
     
-    return SleepStageAnnotation(
+    return Annotation[AASMSleepStage](
         name=stage_map[stage_str],
         start_ts=start_ts + timedelta(seconds=epoch*epoch_sec),
         start_sec=epoch*epoch_sec,
@@ -274,7 +275,7 @@ def parse_hypnogram(
         hg_file: str,
         hg_int: list[int],
         epoch_sec=30,
-        scorer='profusion_manual') -> Hypnogram:
+        scorer='profusion') -> Hypnogram:
     try:
         with open(subject_dir / hg_file) as f:
             hg_str = f.readlines()
@@ -295,7 +296,7 @@ def parse_hypnogram(
             parse_sleep_stage(stage_str, start_ts, epoch, epoch_sec)
         )
 
-    return Hypnogram(scorer=scorer, annotations=sleep_stages)
+    return Hypnogram(scorer=scorer, type='hypnogram', annotations=sleep_stages)
 
 
 def parse_subject(subject_dir: Path, file_names: dict[str, str]) -> Subject:
@@ -307,6 +308,9 @@ def parse_subject(subject_dir: Path, file_names: dict[str, str]) -> Subject:
     annotations, hg_int, epoch_sec = parse_xml(subject_dir / file_names['xml_file'],
         start_ts=start_ts)
     
+    if annotations is None:
+        annotations = {}
+
     if hg_int is not None:
         hypnogram = parse_hypnogram(
             subject_dir,
@@ -315,13 +319,13 @@ def parse_subject(subject_dir: Path, file_names: dict[str, str]) -> Subject:
             hg_int,
             epoch_sec=epoch_sec
         )
-        if annotations is None:
-            annotations = {}
         
         if hypnogram is not None:
-            annotations['hypnogram'] = hypnogram
+            annotations['profusion_hypnogram'] = hypnogram
 
     study_logs = parse_study_logs(subject_dir / file_names['log_file'], start_ts)
+    if study_logs is not None:
+        annotations['study_logs'] = study_logs
 
     metadata = SubjectMetadata(
         subject_id=subject_id,
@@ -331,8 +335,7 @@ def parse_subject(subject_dir: Path, file_names: dict[str, str]) -> Subject:
     return Subject(
         metadata=metadata,
         sample_arrays=sample_arrays,
-        annotations=annotations,
-        study_logs=study_logs
+        annotations=annotations
     )
 
 
@@ -363,7 +366,9 @@ def convert_dataset(
         log_file: str = 'txt_studylog.txt',
         edf_file: str = 'edf_signals.edf',
         idinfo_file: str = 'txt_idinfo.txt',
-        hg_file: str = 'txt_hypnogram.txt') -> None:
+        hg_file: str = 'txt_hypnogram.txt',
+        array_format: str = 'zarr',
+        clevel: int = 9) -> None:
     logger.info(f'Converting Profusion data from {src_dir} to {dst_dir}...')
     logger.info(f'Start reading the data from {src_dir}...')
     dataset = read_data(
@@ -377,7 +382,7 @@ def convert_dataset(
         })
 
     logger.info(f'Start writing the data to {dst_dir}...')
-    writer.write_dataset(dataset, dst_dir)
+    writer.write_dataset(dataset, dst_dir, array_format=array_format, compression_level=clevel)
     logger.info(f'Done.')
 
 
@@ -392,6 +397,10 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument('--edf_file', type=str, default='edf_signals.edf')
     parser.add_argument('--idinfo_file', type=str, default='txt_idinfo.txt')
     parser.add_argument('--hg_file', type=str, default='txt_hypnogram.txt')
+    parser.add_argument('--array_format', default='zarr',
+        help='Saving format for numerical arrays. `zarr` or `numpy`')
+    parser.add_argument('--clevel', type=int, default=9,
+        help='Compression level if array format is zarr.')
 
     return parser
 
