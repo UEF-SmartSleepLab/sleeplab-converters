@@ -43,7 +43,14 @@ def read_edf_export(edf_path: Path,
     when evaluated. This way, all data need not fit into memory.
     """
     edf_path_str = str(edf_path.resolve())
-    with pyedflib.EdfReader(edf_path_str) as hdl:
+
+    # Tell EdfReader not to validate annotations if they will not be used
+    if annotations is False:
+        annotations_mode = 0
+    else:
+        annotations_mode = 2
+
+    with pyedflib.EdfReader(edf_path_str, annotations_mode=annotations_mode) as hdl:
         n_chs = hdl.signals_in_file
     
         # Resolve the channel indices if channel names are given
