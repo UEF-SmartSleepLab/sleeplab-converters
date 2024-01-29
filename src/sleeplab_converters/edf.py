@@ -12,7 +12,7 @@ def read_signal_from_path(
         idx: int,
         digital: bool = False,
         dtype: np.dtype = np.float32) -> np.array:
-    with pyedflib.EdfReader(edf_path) as hdl:
+    with pyedflib.EdfReader(edf_path, annotations_mode=0) as hdl:
         # Read as digital if need to rewrite EDF
         # since otherwise will crash due to shifted values
         # https://github.com/holgern/pyedflib/issues/46
