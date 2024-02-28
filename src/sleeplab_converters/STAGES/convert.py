@@ -13,7 +13,7 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 
-def parse_csv_BOGN():
+def parse_csv_BOGN(start_ts: datetime):
     stage_map = {}
     event_map = {}
 
@@ -45,16 +45,19 @@ def parse_edf(edf_path: Path) -> tuple[datetime, ]:
     return start_ts, sample_arrays
 
 
-def convert_BOGN():
+def convert_BOGN(src_dir: Path) -> models.Series:
     subjects = {}
     # Loop through csv files
-    for csvpath in ...:
+    for csvpath in (src_dir / 'original' / 'STAGES PSGs' / 'BOGN').glob('*.csv'):
+        logger.info(f'Parsing subject {csvpath.stem}...')
+        edfpath = csvpath.parent / f'{csvpath.stem}.edf'
         # If there is no edf corresponding to csv, skip
-        if ...:
+        if not edfpath.exists():
+            logger.info(f'EDF file matching the CSV does not exist: {edfpath}')
             continue
 
-        start_ts, sample_arrays = parse_edf(...)
-        
+        start_ts, sample_arrays = parse_edf(edf_path=edfpath)
+        continue
         sid, events, hypnogram, analysis_start, analysis_end = parse_csv_BOGN(...)
 
         subject = models.Subject(
@@ -117,10 +120,10 @@ def convert_dataset(
     series_dict = {}
     for series_name in series:
         logger.info(f'Converting series {series_name}...')
-        series_dict[series] = CONVERSION_FUNCS[series_name](
-            ...
+        series_dict[series_name] = CONVERSION_FUNCS[series_name](
+            src_dir=src_dir
         )
-
+    return
     dataset = models.Dataset(name=ds_name, series=series)
     logger.info(f'Writing dataset {ds_name} to {dst_dir}')
     writer.write_dataset(
