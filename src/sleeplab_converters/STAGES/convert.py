@@ -35,7 +35,7 @@ def resolve_event_start_ts(start_ts: datetime, start_str: str) -> datetime:
     )
 
 
-def parse_csv_BOGN(csvpath: Path, start_ts: datetime, epoch_sec=30.0) -> tuple[
+def parse_csv(csvpath: Path, start_ts: datetime, epoch_sec=30.0) -> tuple[
         list[models.Annotation[models.AASMEvent]],  # Events
         list[models.Annotation[models.AASMSleepStage]],  # Hypnogram
         datetime | None,  # Analysis start
@@ -251,7 +251,7 @@ def parse_edf(edf_path: Path) -> tuple[datetime, ]:
     return start_ts, sample_arrays
 
 
-def convert_BOGN(src_dir: Path) -> models.Series:
+def convert_series(src_dir: Path, series_name: str) -> models.Series:
     subjects = {}
     # Loop through csv files
     for csvpath in (src_dir / 'original' / 'STAGES PSGs' / 'BOGN').glob('*.csv'):
@@ -264,7 +264,7 @@ def convert_BOGN(src_dir: Path) -> models.Series:
 
         subject_id = csvpath.stem
         start_ts, sample_arrays = parse_edf(edf_path=edfpath)
-        events, hypnogram, analysis_start, analysis_end, lights_off, lights_on = parse_csv_BOGN(
+        events, hypnogram, analysis_start, analysis_end, lights_off, lights_on = parse_csv(
             csvpath=csvpath,
             start_ts=start_ts
         )
@@ -289,45 +289,26 @@ def convert_BOGN(src_dir: Path) -> models.Series:
 
         subjects[subject_id] = subject
 
-    series = models.Series(name='BOGN', subjects=subjects)
+    series = models.Series(name=series_name, subjects=subjects)
     
     return series
 
 
-def convert_GS():
-    pass
-
-
-def convert_MS():
-    pass
-
-
-def convert_STLK():
-    pass
-
-
-def convert_STNF():
-    pass
-
-
-CONVERSION_FUNCS = {
-    'BOGN': convert_BOGN,
-    'GSBB': convert_GS,
-    'GSDV': convert_GS,
-    'GSLH': convert_GS,
-    'GSSA': convert_GS,
-    'GSSW': convert_GS,
-    'MSMI': convert_MS,
-    'MSNF': convert_MS,
-    'MSQW': convert_MS,
-    'MSTH': convert_MS,
-    'MSTR': convert_MS,
-    'SLTK': convert_STLK,
-    'STNF': convert_STNF
-}
-
-
-ALL_SERIES = list(CONVERSION_FUNCS.keys())
+ALL_SERIES = [
+    'BOGN',
+    'GSBB',
+    'GSDV',
+    'GSLH',
+    'GSSA',
+    'GSSW',
+    'MSMI',
+    'MSNF',
+    'MSQW',
+    'MSTH',
+    'MSTR',
+    'SLTK',
+    'STNF'
+]
 
 
 def convert_dataset(
@@ -341,8 +322,9 @@ def convert_dataset(
     series_dict = {}
     for series_name in series:
         logger.info(f'Converting series {series_name}...')
-        series_dict[series_name] = CONVERSION_FUNCS[series_name](
-            src_dir=src_dir
+        series_dict[series_name] = convert_series(
+            src_dir=src_dir,
+            series_name=series_name
         )
 
     dataset = models.Dataset(name=ds_name, series=series_dict)
