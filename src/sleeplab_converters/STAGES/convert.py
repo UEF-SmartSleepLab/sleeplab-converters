@@ -1,9 +1,9 @@
 import argparse
 import logging
 import numpy as np
-import pandas as pd
+import csv
 
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from sleeplab_converters import edf
 from sleeplab_format import models, writer
@@ -13,11 +13,217 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 
-def parse_csv_BOGN(start_ts: datetime):
-    stage_map = {}
-    event_map = {}
+def resolve_event_start_ts(start_ts: datetime, start_str: str) -> datetime:
+    """Convert time of the day to datetime based on start_ts datetime.
 
-    # Interpret the 'cal' events as analysis_start and analysis_end
+    This function assumes that time_str presents a time of the day within
+    24 hours from start_ts.
+    """
+    start_time = datetime.strptime(start_str, '%H:%M:%S').time()
+    _date = start_ts.date()
+    if start_time < start_ts.time():
+        # If the time is smaller, it belongs to next day
+        _date = _date + timedelta(days=1)
+
+    return datetime(
+        year=_date.year,
+        month=_date.month,
+        day=_date.day,
+        hour=start_time.hour,
+        minute=start_time.minute,
+        second=start_time.second,
+    )
+
+
+def parse_csv_BOGN(csvpath: Path, start_ts: datetime, epoch_sec=30.0) -> tuple[
+        list[models.Annotation[models.AASMEvent]],  # Events
+        list[models.Annotation[models.AASMSleepStage]],  # Hypnogram
+        datetime | None,  # Analysis start
+        datetime | None,  # Analysis end
+        datetime | None,  # Lights off
+        datetime | None]:  # Lights on
+    stage_map = {
+        'Wake': models.AASMSleepStage.W,
+        'Stage1': models.AASMSleepStage.N1,
+        'Stage2': models.AASMSleepStage.N2,
+        'Stage3': models.AASMSleepStage.N3,
+        'REM': models.AASMSleepStage.R,
+        'UnknownStage': models.AASMSleepStage.UNSURE
+    }
+    event_map = {
+        'Arousal': models.AASMEvent.AROUSAL,
+        'CentralApnea': models.AASMEvent.APNEA_CENTRAL,
+        'Desaturation': models.AASMEvent.SPO2_DESAT,
+        'Hypopnea': models.AASMEvent.HYPOPNEA,
+        'MixedApnea': models.AASMEvent.APNEA_MIXED,
+        'ObstructiveApnea': models.AASMEvent.APNEA_OBSTRUCTIVE,
+        'Snore': models.AASMEvent.SNORE
+    }
+    skip_names = [
+        'Awake',
+        'CAw',
+        'CSBr',
+        'MChg',
+        'MA',
+        'MAa',
+        'mt',
+        'MT',
+        'mta',
+        'MTa',
+        'MTw',
+        'mtw',
+        'Nasal Breathing',
+        'OAw',
+        'OHw',
+        'Oral Breathing',
+        'Per Slp',
+        'REM Aw',
+        'UD1',
+        'UD1a',
+        'UD1w',
+        'UD2',
+        'UD2a',
+        'UD2w',
+        'UDAr',
+        'UDAra',
+        'Unknown',
+
+        'BIO-CALS',
+        'Lie quietly with eyes open',
+        'Lie quietly with eyes closed',
+        'Look up and down 5 times',
+        'Look left and right 5 times',
+        'Blink 5 times',
+        'Grit teeth for 5 seconds',
+        'Flex left foot 5 times',
+        'Flex right foot 5 times',
+        'Breathe through nose only for 30 seconds',
+        'Breathe through mouth only for 30 seconds',
+        'Hold breath for 10 seconds',
+        'Cough',
+        'COUGH',
+
+        'Eyes Closed',
+        'EYES CLOSED',
+        'Eyes Open',
+        'EYES OPEN',
+        'Look Up Down',
+        'EYES UP AND DOWN',
+        'Look Left Right',
+        'EYES LEFT/RIGHT',
+        'Blink 5 Times',
+        'BLINK',
+        'Grit Teeth',
+        'GRIT TEETH',
+        'Flex Left Leg',
+        'FLXL',
+        'Flex Right Leg',
+        'FLXR',
+        'NOSE',
+        'MOUTH',
+        'HOLD BREATH',
+
+        'MOVED LEFT',
+        'MOVED RIGHT',
+        'MOVED RIGHT SIDE',
+        'MOVED SUPINE',
+        'LEFT SIDE',
+        'Supine',
+
+        'EMERGENCY INTERVENTION',
+        'TIR- START CPAP',
+        'TIR TO ADJUST ORAL FLOW SENSOR',
+        'TIR TO REATTATCH HEAD LEADS AFTER PT CALLED FOR TECH TO COME REPLACE THEM',
+        'TIR TO CHECK PULSE OX',
+        'TIR TO FIX PULSE  OX',
+        'TIR FIXING CANNULA',
+        'TIR TO HELP PT UP TO THE RESTROOM- CANFLOW FIXED AT THIS TIME',
+        'TIR TO TURN TV OFF AS PT FELL ASLEEP WITHIT ON',
+        'TIR TO REPOSITION POx ON FINGER.',
+        'TIR TO HELP PT UP TO THE RESTROOM',
+        'TIR CHECKING FLOWS',
+        'TIR GETTING PT SETUP ON CPAP',
+        'TOR',
+        'TOR. FIXED CHIN',
+
+        'MACHINE CALS',
+
+        "PT'S LOUT DELAYED DUE TO NORMAL SLEEP TIME BEING ABOUT 0000 FOR CLASS HOURS.",
+
+        'Begin PT Cals',
+        'TECH AWARE OF M2',
+        'PATIENT WORRIED THAT SHE IS NOT SLEEPING',
+        'TechIn',
+        'PT to Restroom',
+        'TechOut',
+        'PATIENT STATED SHE IS READY TO END STUDY WHEN ENOUGHT TIME HAS PASSED.',
+        '0529-0548 PULSE OX NOT READING ACURATLY DUE TO SLIDING OFF A BIT',
+        'CHECK M2',
+        'REPLACED LEADS',
+        'PATIENT REQUESTING LON',
+        'IN TO FIX PULSE OX',
+        'TECH JUST REALIZED CPAP PRESSURE WAS SET AT 6CMH20 INSTEAD OF 5CMH20.',
+        'TECH DECREASED PRESSURE TO 5CMH20',
+        'INCREASED PRESSURE TO 7CMH20 FOR PHYSICIAN COMPARISON',
+        'PRESSURE INCREASED TO 9CMH20 FOR PHYSICIAN COMPARISON. TIDAL VOL 404',
+    ]
+
+    hg = []
+    events = []
+    cal_times = []
+
+    lights_off = None
+    lights_on = None
+
+    with open(csvpath, 'r') as f:
+        reader = csv.reader(f, delimiter=',', skipinitialspace=True)
+        _ = next(reader, None)  # Skip the header line
+        for row in reader:
+            if len(row) != 3:
+                logger.info(f'Wrong number of commas on row, skipping: {row}')
+                continue
+            start_time_str, duration_str, name_str = row
+            name_str = name_str.strip()
+            event_start_ts = resolve_event_start_ts(start_ts, start_time_str)
+            duration = float(duration_str)
+
+            if name_str in stage_map.keys():
+                hg.append(models.Annotation[models.AASMSleepStage](
+                    name=stage_map[name_str],
+                    start_ts=event_start_ts,
+                    start_sec=(event_start_ts - start_ts).total_seconds(),
+                    duration=epoch_sec if duration == 0.0 else duration
+                ))
+            elif name_str in event_map.keys():
+                events.append(models.Annotation[models.AASMEvent](
+                    name=event_map[name_str],
+                    start_ts=event_start_ts,
+                    start_sec=(event_start_ts - start_ts).total_seconds(),
+                    duration=duration
+                ))
+            elif name_str == 'Cal':
+                # Interpret the 'cal' events as analysis_start and analysis_end
+                cal_times.append(event_start_ts)
+            elif name_str in ('LightsOff',):
+                assert lights_off is None, 'lights_off already assigned'
+                lights_off = event_start_ts
+            elif name_str in ('LightsOn', 'LON'):
+                assert lights_on is None, 'lights_on already assigned'
+                lights_on = event_start_ts
+            elif name_str in skip_names:
+                continue
+            else:
+                raise ValueError(f'unknown name_str: {name_str}')
+
+    if len(cal_times) != 2:
+        logger.info(f'There should be exactly 2 Cal times, but got {cal_times}')
+        analysis_start = None
+        analysis_end = None
+    else:
+        analysis_start = cal_times[0]
+        analysis_end = cal_times[1]
+
+    return events, hg, analysis_start, analysis_end, lights_off, lights_on
 
 
 def parse_edf(edf_path: Path) -> tuple[datetime, ]:
@@ -56,19 +262,34 @@ def convert_BOGN(src_dir: Path) -> models.Series:
             logger.info(f'EDF file matching the CSV does not exist: {edfpath}')
             continue
 
+        subject_id = csvpath.stem
         start_ts, sample_arrays = parse_edf(edf_path=edfpath)
-        continue
-        sid, events, hypnogram, analysis_start, analysis_end = parse_csv_BOGN(...)
-
-        subject = models.Subject(
-            metadata=...,
-            sample_arrays=...,
-            annotations=...
+        events, hypnogram, analysis_start, analysis_end, lights_off, lights_on = parse_csv_BOGN(
+            csvpath=csvpath,
+            start_ts=start_ts
         )
 
-        subjects[...] = subject
+        annotations = {
+            'STAGES_aasmevents': models.AASMEvents(scorer='STAGES', type='aasmevents', annotations=events),
+            'STAGES_hypnogram': models.Hypnogram(scorer='STAGES', type='hypnogram', annotations=hypnogram)
+        }
+        metadata = models.SubjectMetadata(
+            subject_id=subject_id,
+            recording_start_ts=start_ts,
+            analysis_start=analysis_start,
+            analysis_end=analysis_end,
+            lights_off=lights_off,
+            lights_on=lights_on
+        )
+        subject = models.Subject(
+            metadata=metadata,
+            sample_arrays=sample_arrays,
+            annotations=annotations
+        )
 
-    series = ...
+        subjects[subject_id] = subject
+
+    series = models.Series(name='BOGN', subjects=subjects)
     
     return series
 
@@ -123,8 +344,8 @@ def convert_dataset(
         series_dict[series_name] = CONVERSION_FUNCS[series_name](
             src_dir=src_dir
         )
-    return
-    dataset = models.Dataset(name=ds_name, series=series)
+
+    dataset = models.Dataset(name=ds_name, series=series_dict)
     logger.info(f'Writing dataset {ds_name} to {dst_dir}')
     writer.write_dataset(
         dataset,
