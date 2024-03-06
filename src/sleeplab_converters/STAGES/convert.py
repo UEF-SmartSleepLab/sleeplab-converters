@@ -274,7 +274,7 @@ def convert_dataset(
         series_dict[series_name] = _series
         all_error_counts[series_name] = _error_counts
 
-    error_count_path = dst_dir / 'conversion_error_counts.json'
+    error_count_path = dst_dir / ds_name / 'conversion_error_counts.json'
     logger.info(f'Writing error counts to {error_count_path}')
     with open(error_count_path, 'w') as f:
         json.dump(all_error_counts, f, indent=4)
