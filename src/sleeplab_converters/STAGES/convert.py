@@ -250,7 +250,7 @@ ALL_SERIES = [
     'MSQW',
     'MSTH',
     'MSTR',
-    'SLTK',
+    'STLK',
     'STNF'
 ]
 
