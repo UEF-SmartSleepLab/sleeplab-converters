@@ -153,7 +153,7 @@ def parse_csv(csvpath: Path, start_ts: datetime, epoch_sec=30.0) -> tuple[
     return events, hg, other_annotations, analysis_start, analysis_end, lights_off, lights_on
 
 
-def parse_edf(edf_path: Path) -> tuple[datetime, ]:
+def parse_edf(edf_path: Path) -> tuple[datetime, dict[str, models.SampleArray]]:
     """Read the start_ts and SampleArrays from the EDF."""
     def _parse_samplearray(
             _load_func: Callable[[], np.array],
