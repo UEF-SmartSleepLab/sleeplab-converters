@@ -14,10 +14,18 @@ logger = logging.getLogger(__name__)
 
 
 def parse_aasmevent(e_dict: dict[str, Any], rec_start_ts: datetime, rec_duration: float) -> slf.models.Annotation:
+    # TODO: add SignalLocation, SpO2 nadir and baseline
     event_map = {
         'SpO2 artifact|SpO2 artifact': slf.models.AASMEvent.ARTIFACT,
+        'Respiratory artifact|Respiratory artifact': slf.models.AASMEvent.ARTIFACT,
         'SpO2 desaturation|SpO2 desaturation': slf.models.AASMEvent.SPO2_DESAT,
         'Arousal|Arousal ()': slf.models.AASMEvent.AROUSAL,
+        'ASDA arousal|Arousal (ASDA)': slf.models.AASMEvent.AROUSAL,
+        'Spontaneous arousal|Arousal (ARO SPONT)': slf.models.AASMEvent.AROUSAL_SPONT,
+        'Arousal (ARO Limb)': slf.models.AASMEvent.AROUSAL_LM,
+        'Arousal (AASM)': slf.models.AASMEvent.AROUSAL,
+        'Respiratory effort related arousal|RERA': slf.models.AASMEvent.RERA,
+        'Arousal resulting from respiratory effort|Arousal (ARO RES)': slf.models.AASMEvent.AROUSAL_RES,
         'Limb movement - left|Limb Movement (Left)': slf.models.AASMEvent.LM_LEFT,
         'Periodic leg movement - left|PLM (Left)': slf.models.AASMEvent.PLM_LEFT,
 
@@ -27,7 +35,8 @@ def parse_aasmevent(e_dict: dict[str, Any], rec_start_ts: datetime, rec_duration
         'Unsure|Unsure': slf.models.AASMEvent.HYPOPNEA,
 
         'Obstructive apnea|Obstructive Apnea': slf.models.AASMEvent.APNEA_OBSTRUCTIVE,
-
+        'Central apnea|Central Apnea': slf.models.AASMEvent.APNEA_CENTRAL,
+        'Mixed apnea|Mixed Apnea': slf.models.AASMEvent.APNEA_MIXED
     }
     
     name = event_map[e_dict['EventConcept']]
@@ -35,8 +44,8 @@ def parse_aasmevent(e_dict: dict[str, Any], rec_start_ts: datetime, rec_duration
     duration = float(e_dict['Duration'])
     start_ts = rec_start_ts + timedelta(seconds=start_sec)
 
-    _msg = 'Event stop is later than the recording end'
-    assert start_ts + timedelta(seconds=duration) < rec_start_ts + timedelta(seconds=rec_duration), _msg
+    _msg = 'Event end is later than the recording end'
+    assert start_ts + timedelta(seconds=duration) <= rec_start_ts + timedelta(seconds=rec_duration), _msg
 
     return slf.models.Annotation[slf.models.AASMEvent](
         name=name,
@@ -52,7 +61,9 @@ def parse_sleep_stage(e_dict: dict[str, Any], rec_start_ts: datetime, rec_durati
         'Stage 1 sleep|1': slf.models.AASMSleepStage.N1,
         'Stage 2 sleep|2': slf.models.AASMSleepStage.N2,
         'Stage 3 sleep|3': slf.models.AASMSleepStage.N3,
-        'REM sleep|5': slf.models.AASMSleepStage.R
+        'REM sleep|5': slf.models.AASMSleepStage.R,
+        'Unscored|9': slf.models.AASMSleepStage.UNSCORED,
+        'Stage 4 sleep|4': slf.models.AASMSleepStage.N3
     }
 
     name = stage_map[e_dict['EventConcept']]
@@ -60,8 +71,8 @@ def parse_sleep_stage(e_dict: dict[str, Any], rec_start_ts: datetime, rec_durati
     duration = float(e_dict['Duration'])
     start_ts = rec_start_ts + timedelta(seconds=start_sec)
 
-    _msg = 'Event stop is later than the recording end'
-    assert start_ts + timedelta(seconds=duration) < rec_start_ts + timedelta(seconds=rec_duration), _msg
+    _msg = 'Sleep stage end is later than the recording end'
+    assert start_ts + timedelta(seconds=duration) <= rec_start_ts + timedelta(seconds=rec_duration), _msg
 
     return slf.models.Annotation[slf.models.AASMSleepStage](
         name=name,
@@ -87,8 +98,26 @@ def parse_xml(xmlpath: Path, rec_start_ts: datetime, scorer: str = 'nsrr') -> di
             rec_duration = float(e['Duration'])
         elif e['EventType'].startswith('Stages'):
             hg.append(parse_sleep_stage(e, rec_start_ts, rec_duration))
+        elif e['EventConcept'] == 'Technician Notes':
+            # Some arousals have been scored as technician notes...
+            if e['Notes'] in ('Arousal (ARO Limb)', 'Arousal (AASM)'):
+                e['EventConcept'] = e['Notes']
+                events.append(parse_aasmevent(e, rec_start_ts, rec_duration))
+            else:
+                logger.info(f'Unknown event: {e}')
+                raise KeyError(e['EventConcept'])
+        elif e['EventConcept'] in (
+                'Narrow complex tachycardia|Narrow Complex Tachycardia',
+                'Periodic breathing|Periodic Breathing'):
+            # Skip these events for now
+            logger.info(f'Skipping event {e}')
+            continue
         else:
-            events.append(parse_aasmevent(e, rec_start_ts, rec_duration))
+            # Discard the event on error
+            try:
+                events.append(parse_aasmevent(e, rec_start_ts, rec_duration))
+            except AssertionError as e:
+                print(e)
 
     annotations = {
         f'{scorer}_aasmevents': slf.models.AASMEvents(scorer=scorer, annotations=events),
