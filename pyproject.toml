@@ -23,7 +23,7 @@ classifiers = [
 dependencies = [ 
   "pyedflib",
   "xmltodict",
-  "sleeplab-format==0.4.0"
+  "sleeplab-format==0.4.1"
 ]
 dynamic = ["version"]
 
