@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 def parse_aasmevent(e_dict: dict[str, Any], rec_start_ts: datetime, rec_duration: float) -> slf.models.Annotation:
-    # TODO: add SignalLocation, SpO2 nadir and baseline
     event_map = {
         'SpO2 artifact|SpO2 artifact': slf.models.AASMEvent.ARTIFACT,
         'Respiratory artifact|Respiratory artifact': slf.models.AASMEvent.ARTIFACT,
@@ -43,6 +42,13 @@ def parse_aasmevent(e_dict: dict[str, Any], rec_start_ts: datetime, rec_duration
     start_sec = float(e_dict['Start'])
     duration = float(e_dict['Duration'])
     start_ts = rec_start_ts + timedelta(seconds=start_sec)
+    input_channel = e_dict.get('SignalLocation') or None
+    extra_attributes = None
+    if name == slf.models.AASMEvent.SPO2_DESAT:
+        extra_attributes = {
+            'spo2_nadir': float(e_dict['SpO2Nadir']),
+            'spo2_baseline': float(e_dict['SpO2Baseline'])
+        }
 
     _msg = 'Event end is later than the recording end'
     assert start_ts + timedelta(seconds=duration) <= rec_start_ts + timedelta(seconds=rec_duration), _msg
@@ -51,7 +57,9 @@ def parse_aasmevent(e_dict: dict[str, Any], rec_start_ts: datetime, rec_duration
         name=name,
         start_ts=start_ts,
         start_sec=start_sec,
-        duration=duration
+        duration=duration,
+        input_channel=input_channel,
+        extra_attributes=extra_attributes
     )
 
 
@@ -134,7 +142,7 @@ def parse_edf(edfpath: Path) -> tuple[datetime, dict[str, slf.models.SampleArray
             _header: dict[str, Any]) -> slf.models.SampleArray:
         array_attributes = slf.models.ArrayAttributes(
             # Replace '/' and space with '_' to avoid errors in filepaths
-            name=_header['label'].replace('/', '_').replace('\s', '_'),
+            name=_header['label'].replace('/', '_').replace(r'\s', '_'),
             start_ts=start_ts,
             sampling_rate=_header['sample_frequency'],
             unit=_header['dimension']
