@@ -1,16 +1,50 @@
 import argparse
 import logging
 import numpy as np
+import pandas as pd
 import sleeplab_format as slf
 import xmltodict
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from sleeplab_converters import edf
 from typing import Any, Callable
 
 
 logger = logging.getLogger(__name__)
+
+
+def str_to_time(time_str):
+    hour, minute, _second = time_str.split(sep=':')
+    hour = int(hour)
+    minute = int(minute)
+    _second = float(_second)
+    second = int(_second)
+    microsecond = int(_second % 1 * 1e6)
+
+    return time(hour=hour, minute=minute, second=second, microsecond=microsecond)
+
+
+def resolve_datetime(start_ts: datetime, _time: datetime) -> datetime:
+    """Convert time of the day to datetime based on start_ts datetime.
+
+    This function assumes that time_str presents a time of the day within
+    24 hours from start_ts.
+    """
+    _date = start_ts.date()
+    if _time < start_ts.time():
+        # If the time is smaller, it belongs to next day
+        _date = _date + timedelta(days=1)
+
+    return datetime(
+        year=_date.year,
+        month=_date.month,
+        day=_date.day,
+        hour=_time.hour,
+        minute=_time.minute,
+        second=_time.second,
+        microsecond=_time.microsecond
+    )
 
 
 def parse_aasmevent(e_dict: dict[str, Any], rec_start_ts: datetime, rec_duration: float) -> slf.models.Annotation:
@@ -161,8 +195,14 @@ def parse_edf(edfpath: Path) -> tuple[datetime, dict[str, slf.models.SampleArray
 
 
 def convert_series(src_dir: Path, series_name: str) -> slf.models.Series:
+    # Read the csv data to get lights off and on times
+    meta_df = pd.read_csv(src_dir / 'datasets' / 'mesa-sleep-dataset-0.7.0.csv')
+    meta_df['mesaid'] = meta_df['mesaid'].apply(lambda i: f'mesa-sleep-{i:04d}')
+    meta_df = meta_df.set_index('mesaid')
+
     subjects = {}
-    for edfpath in (src_dir / 'edfs').glob('*.edf'):
+    psg_dir = src_dir / 'polysomnography'
+    for edfpath in (psg_dir / 'edfs').glob('*.edf'):
         subject_id = edfpath.stem
         logger.info(f'Parsing subject {subject_id}')
         xmlpath = edfpath.parent.parent / 'annotations-events-nsrr' / f'{subject_id}-nsrr.xml'
@@ -172,9 +212,13 @@ def convert_series(src_dir: Path, series_name: str) -> slf.models.Series:
         
         rec_start_ts, sample_arrays = parse_edf(edfpath=edfpath)
         annotations = parse_xml(xmlpath, rec_start_ts)
+        lights_off = resolve_datetime(rec_start_ts, str_to_time(meta_df.loc[subject_id].stloutp5))
+        lights_on = resolve_datetime(rec_start_ts, str_to_time(meta_df.loc[subject_id].stlonp5))
         metadata = slf.models.SubjectMetadata(
             subject_id=subject_id,
             recording_start_ts=rec_start_ts,
+            lights_off=lights_off,
+            lights_on=lights_on
         )
         subject = slf.models.Subject(
             metadata=metadata,
@@ -196,7 +240,7 @@ def convert_dataset(
         array_format: str,
         annotation_format: str) -> None:
     logger.info(f'Converting series {series_name}')
-    series = convert_series(src_dir / 'polysomnography', series_name)
+    series = convert_series(src_dir, series_name)
     dataset = slf.models.Dataset(name=ds_name, series={series_name: series})
     logger.info(f'Writing dataset {ds_name} to {dst_dir}')
     dst_dir.mkdir(parents=True, exist_ok=True)
